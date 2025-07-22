@@ -1,74 +1,123 @@
-# 导入os库，我们的文件操作全靠它
 import os
+import requests
+import chromadb
+from openai import OpenAI
 
-# --- 准备工作 ---
-# 知识库文件夹的名字，确保它和你的文件夹名字完全一样
-KNOWLEDGE_BASE_DIR = "NieR-Automata-RAG-KB"
+# --- 准备工作 (环境变量读取) ---
+SILICONFLOW_API_KEY = os.environ.get("SILICONFLOW_API_KEY")
+if not SILICONFLOW_API_KEY:
+    print("错误：未能在系统环境变量中找到 'SILICONFLOW_API_KEY'。")
+    exit()
 
-# 同样，我们先获取当前项目的根目录
 project_root = os.path.dirname(os.path.abspath(__file__))
 
-# 然后，拼接出知识库文件夹的完整路径
-knowledge_base_path = os.path.join(project_root, KNOWLEDGE_BASE_DIR)
+# --- 核心函数 (get_embedding 保持不变) ---
+def get_embedding(text_chunk):
+    # ... (此函数内容与之前完全相同，为节省篇幅此处省略) ...
+    url = "https://api.siliconflow.cn/v1/embeddings"
+    model_name = "BAAI/bge-m3"
+    headers = { "Authorization": f"Bearer {SILICONFLOW_API_KEY}", "Content-Type": "application/json" }
+    payload = { "model": model_name, "input": text_chunk }
+    try:
+        response = requests.post(url, json=payload, headers=headers)
+        if response.status_code == 200:
+            return response.json()['data'][0]['embedding']
+        else:
+            return None
+    except Exception as e:
+        return None
 
-# --- 核心代码：使用 os.walk 遍历所有文件 ---
-if not os.path.exists(knowledge_base_path):
-    print(f"错误：找不到知识库文件夹 '{knowledge_base_path}'！")
-    print("请确保你的项目结构是这样的：")
-    print("nier_ai_bot/")
-    print("├── main.py")
-    print("└── NieR-Automata-RAG-KB/")
-else:
-    print(f"成功找到知识库，路径是：{knowledge_base_path}\n")
-    
-    # 创建一个列表，用来存放我们读出来的所有文档
-    all_documents = []
+# --- ✨✨✨ 最终版流式生成函数（保持不变） ✨✨✨ ---
+def generate_answer_stream_with_reasoning(query, retrieved_chunks):
+    client = OpenAI(api_key=SILICONFLOW_API_KEY, base_url="https://api.siliconflow.cn/v1")
+    context = "\n\n---\n\n".join(retrieved_chunks)
+    prompt = f"""
+请你扮演一个《尼尔：机械纪元》的资深专家。
+你的任务是根据下面提供的上下文信息，简洁、清晰地回答用户的问题。
+在回答前，请先进行一步思考（Reasoning），分析上下文中的哪些信息可以用来回答问题。
+然后，根据你的思考，给出最终的答案。
+【上下文信息】:
+{context}
+【用户的问题】:
+{query}
+"""
+    model_name = "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B" 
+    try:
+        stream = client.chat.completions.create(
+            model=model_name,
+            messages=[{"role": "user", "content": prompt}],
+            stream=True
+        )
+        return stream
+    except Exception as e:
+        print(f"生成答案过程中发生严重错误: {e}")
+        return None
 
-    # 这就是我们的“探险家”：os.walk()！
-    # 它会遍历 knowledge_base_path 下的每一个文件夹
-    # for循环每次会返回三个东西：
-    # 1. current_path: 当前正在访问的这个文件夹的路径
-    # 2. sub_folders: 这个文件夹里包含的子文件夹的名字列表
-    # 3. files_in_folder: 这个文件夹里包含的文件的名字列表
-    for current_path, sub_folders, files_in_folder in os.walk(knowledge_base_path):
-        print(f"--- 正在探索文件夹: {current_path} ---")
-        
-        # 对当前文件夹里的每一个文件名进行处理
-        for filename in files_in_folder:
-            # 我们只关心 .txt 和 .md 文件，忽略其他可能存在的文件（比如Mac自动生成的.DS_Store）
-            # filename.endswith(('.txt', '.md')) 这个判断非常有用！
-            if filename.endswith(('.txt', '.md')):
-                
-                # 拼接出这个文件的完整路径
-                file_path = os.path.join(current_path, filename)
-                
-                print(f"  正在读取文件: {filename}")
-                
-                # 使用标准、安全的方式读取文件内容
-                try:
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        file_content = f.read()
-                        
-                        # 这次我们存储更多信息！除了内容，还把文件的来源和分类也存进去
-                        # 这样做的好处是，以后AI回答问题时，我们可以告诉用户答案出自哪个章节
-                        document = {
-                            "source_file": filename,  # 文件名
-                            "content": file_content,  # 文件内容
-                            "category": os.path.basename(current_path) # 文件所在的文件夹名，作为分类
-                        }
-                        all_documents.append(document)
-                except Exception as e:
-                    print(f"    读取文件 {filename} 时发生错误: {e}")
+# --- 主程序入口 (最终增强版，带状态管理！) ---
+if __name__ == "__main__":
+    db_path = os.path.join(project_root, "nier_vector_db")
+    client = chromadb.PersistentClient(path=db_path)
+    collection_name = "nier_automata_kb"
+    collection = client.get_or_create_collection(name=collection_name)
 
-    # --- 验证结果 ---
+    if collection.count() == 0:
+        print("数据库为空，请先运行一次带有初始化功能的脚本来填充数据。")
+        exit()
+    else:
+        print(f"数据库 '{collection_name}' 中已存在 {collection.count()} 个知识块。")
+
+    query_text = "游戏有哪些结局？"
     print("\n" + "="*30)
-    print("所有文件探索和读取完毕！")
-    print(f"总共加载了 {len(all_documents)} 个文档。")
+    print(f"用户问题: {query_text}")
     
-    if all_documents:
-        print("\n随机抽样一个文档看看效果：")
-        # 我们可以看看中间的某个文档，来验证子文件夹是否被正确读取
-        sample_doc = all_documents[len(all_documents) // 2] 
-        print(f"  文档分类: {sample_doc['category']}")
-        print(f"  来源文件: {sample_doc['source_file']}")
-        print(f"  内容预览: {sample_doc['content'][:150]}...")
+    query_vector = get_embedding(query_text)
+    
+    if query_vector:
+        results = collection.query(
+            query_embeddings=[query_vector],
+            n_results=3
+        )
+        retrieved_documents = results['documents'][0]
+        
+        print("\n检索到的相关信息:")
+        for i, doc in enumerate(retrieved_documents):
+            print(f"  - [片段{i+1}]: {doc[:80]}...")
+            
+        stream = generate_answer_stream_with_reasoning(query_text, retrieved_documents)
+        
+        if stream:
+            print("\n" + "="*30)
+            
+            # ✨✨✨ 引入状态管理，清晰分割思考与回答 ✨✨✨
+            # current_phase 可以是 None, 'reasoning', 或 'answering'
+            current_phase = None
+
+            for chunk in stream:
+                if not chunk.choices:
+                    continue
+                
+                delta = chunk.choices[0].delta
+
+                # 捕获并打印推理内容
+                if delta.reasoning_content:
+                    # 如果这是思考的第一个数据块
+                    if current_phase != 'reasoning':
+                        current_phase = 'reasoning'
+                        print("🤔 AI正在思考...")
+                    print(delta.reasoning_content, end="", flush=True)
+                
+                # 捕获并打印最终回答内容
+                elif delta.content:
+                    # 如果这是回答的第一个数据块
+                    if current_phase != 'answering':
+                        # 如果之前是在思考，就打印一个分割线，让格式更清晰
+                        if current_phase == 'reasoning':
+                            print("\n" + "-"*20)
+                        current_phase = 'answering'
+                        print("🤖 尼尔AI万事通的回答:")
+                    print(delta.content, end="", flush=True)
+            
+            print() # 结束时换行
+            
+    else:
+        print("问题向量化失败，无法进行查询。")

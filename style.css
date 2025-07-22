@@ -1,0 +1,76 @@
+/* style.css (v2.0 with Animations) */
+
+/* --- 动画定义：淡入并上浮 --- */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translate3d(0, 20px, 0);
+    }
+
+    to {
+        opacity: 1;
+        transform: translate3d(0, 0, 0);
+    }
+}
+
+/* --- 全局字体和背景 --- */
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background-color: #f0f2f5;
+}
+
+/* --- 修改Streamlit主容器样式 --- */
+.main .block-container {
+    padding-top: 2rem;
+    padding-bottom: 2rem;
+    padding-left: 1rem;
+    padding-right: 1rem;
+}
+
+/* --- 聊天气泡样式 --- */
+[data-testid="stChatMessage"] {
+    background-color: #ffffff;
+    border-radius: 20px;
+    padding: 16px;
+    margin-bottom: 12px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    border: 1px solid #e5e5ea;
+    /* ✨ 将我们定义的动画应用到聊天气泡上 ✨ */
+    animation: fadeInUp 0.5s ease-out;
+}
+
+/* 用户气泡的特殊样式 */
+[data-testid="stChatMessage"]:has([data-testid="chat-avatar-user"]) {
+    background-color: #007aff;
+    color: white;
+}
+
+/* --- 聊天输入框样式 --- */
+[data-testid="stChatInput"] {
+    background-color: #ffffff;
+    border-top: 1px solid #e5e5ea;
+}
+
+/* --- 标题和副标题 --- */
+h1 {
+    font-weight: 600;
+    color: #1c1c1e;
+    text-align: center;
+}
+
+.st-emotion-cache-1ujfe27,
+.st-emotion-cache-1jicfl2 {
+    text-align: center;
+}
+
+/* --- 侧边栏样式 --- */
+[data-testid="stSidebar"] {
+    background-color: #f0f2f5;
+    padding: 1rem;
+}
+
+/* --- ✨ 新增：移除聊天输入框容器顶部的边框 ✨ --- */
+[data-testid="stChatInput"] {
+    border-top: none !important;
+    box-shadow: none !important;
+}
